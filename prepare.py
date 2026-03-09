@@ -38,10 +38,10 @@ EVAL_TOKENS = 40 * 524288  # number of tokens for val eval
 CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "autoresearch")
 DATA_DIR = os.path.join(CACHE_DIR, "data")
 TOKENIZER_DIR = os.path.join(CACHE_DIR, "tokenizer")
-BASE_URL = "https://huggingface.co/datasets/karpathy/climbmix-400b-shuffle/resolve/main"
-MAX_SHARD = 6542 # the last datashard is shard_06542.parquet
-VAL_SHARD = MAX_SHARD  # pinned validation shard (shard_06542)
-VAL_FILENAME = f"shard_{VAL_SHARD:05d}.parquet"
+BASE_URL = "https://huggingface.co/datasets/uonlp/CulturaX/resolve/main/he"
+MAX_SHARD = 5  # he_part_00000 through he_part_00005
+VAL_SHARD = MAX_SHARD  # pinned validation shard (he_part_00005)
+VAL_FILENAME = f"he_part_{VAL_SHARD:05d}.parquet"
 VOCAB_SIZE = 8192
 
 # BPE split pattern (GPT-4 style, with \p{N}{1,2} instead of {1,3})
@@ -56,16 +56,20 @@ BOS_TOKEN = "<|reserved_0|>"
 
 def download_single_shard(index):
     """Download one parquet shard with retries. Returns True on success."""
-    filename = f"shard_{index:05d}.parquet"
+    filename = f"he_part_{index:05d}.parquet"
     filepath = os.path.join(DATA_DIR, filename)
     if os.path.exists(filepath):
         return True
 
     url = f"{BASE_URL}/{filename}"
+    headers = {}
+    hf_token = os.environ.get("HF_TOKEN")
+    if hf_token:
+        headers["Authorization"] = f"Bearer {hf_token}"
     max_attempts = 5
     for attempt in range(1, max_attempts + 1):
         try:
-            response = requests.get(url, stream=True, timeout=30)
+            response = requests.get(url, stream=True, timeout=30, headers=headers)
             response.raise_for_status()
             temp_path = filepath + ".tmp"
             with open(temp_path, "wb") as f:
@@ -91,13 +95,13 @@ def download_single_shard(index):
 def download_data(num_shards, download_workers=8):
     """Download training shards + pinned validation shard."""
     os.makedirs(DATA_DIR, exist_ok=True)
-    num_train = min(num_shards, MAX_SHARD)
+    num_train = min(num_shards, MAX_SHARD + 1)
     ids = list(range(num_train))
     if VAL_SHARD not in ids:
         ids.append(VAL_SHARD)
 
     # Count what's already downloaded
-    existing = sum(1 for i in ids if os.path.exists(os.path.join(DATA_DIR, f"shard_{i:05d}.parquet")))
+    existing = sum(1 for i in ids if os.path.exists(os.path.join(DATA_DIR, f"he_part_{i:05d}.parquet")))
     if existing == len(ids):
         print(f"Data: all {len(ids)} shards already downloaded at {DATA_DIR}")
         return
@@ -196,7 +200,7 @@ def train_tokenizer():
     print(f"Tokenizer: saved token_bytes to {token_bytes_path}")
 
     # Sanity check
-    test = "Hello world! Numbers: 123. Unicode: 你好"
+    test = "שלום עולם! מספרים: 123. Hello world"
     encoded = enc.encode_ordinary(test)
     decoded = enc.decode(encoded)
     assert decoded == test, f"Tokenizer roundtrip failed: {test!r} -> {decoded!r}"
@@ -369,7 +373,7 @@ def evaluate_bpb(model, tokenizer, batch_size):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Prepare data and tokenizer for autoresearch")
-    parser.add_argument("--num-shards", type=int, default=10, help="Number of training shards to download (-1 = all). Val shard is always pinned.")
+    parser.add_argument("--num-shards", type=int, default=5, help="Number of training shards to download (-1 = all). Val shard is always pinned.")
     parser.add_argument("--download-workers", type=int, default=8, help="Number of parallel download workers")
     args = parser.parse_args()
 
